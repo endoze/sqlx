@@ -7,7 +7,7 @@ use futures_util::SinkExt;
 use log::Level;
 use sqlx_core::bytes::Buf;
 
-use crate::connection::tls::MaybeUpgradeTls;
+use crate::connection::tls::{check_custom_config, MaybeUpgradeTls};
 use crate::error::Error;
 use crate::message::{
     BackendMessage, BackendMessageFormat, EncodeMessage, FrontendMessage, Notice, Notification,
@@ -42,6 +42,8 @@ pub struct PgStream {
 
 impl PgStream {
     pub(super) async fn connect(options: &PgConnectOptions) -> Result<Self, Error> {
+        check_custom_config(options)?;
+
         let socket_result = match options.fetch_socket() {
             Some(ref path) => net::connect_uds(path, MaybeUpgradeTls(options)).await?,
             None => net::connect_tcp(&options.host, options.port, MaybeUpgradeTls(options)).await?,
