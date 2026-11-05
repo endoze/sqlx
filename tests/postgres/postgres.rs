@@ -2,8 +2,8 @@ use futures_util::{Stream, StreamExt, TryStreamExt};
 
 use sqlx::postgres::types::Oid;
 use sqlx::postgres::{
-    PgAdvisoryLock, PgConnectOptions, PgConnection, PgDatabaseError, PgErrorPosition, PgListener,
-    PgPoolOptions, PgRow, PgSeverity, Postgres, PG_COPY_MAX_DATA_LEN,
+    PgAdvisoryLock, PgAuthMethod, PgConnectOptions, PgConnection, PgDatabaseError, PgErrorPosition,
+    PgListener, PgPoolOptions, PgRow, PgSeverity, Postgres, PG_COPY_MAX_DATA_LEN,
 };
 use sqlx::{Column, Connection, Executor, Row, SqlSafeStr, Statement, TypeInfo};
 use sqlx_core::sql_str::AssertSqlSafe;
@@ -2335,6 +2335,47 @@ async fn it_rolls_back_a_transaction_cancelled_during_begin() -> anyhow::Result<
     // and the pooled connection is still usable
     let one: i32 = sqlx::query_scalar("SELECT 1").fetch_one(&pool).await?;
     assert_eq!(one, 1);
+
+    Ok(())
+}
+
+#[sqlx_macros::test]
+async fn it_connects_only_with_the_auth_method_the_server_requests() -> anyhow::Result<()> {
+    let options: PgConnectOptions = env::var("DATABASE_URL")?.parse()?;
+    let mut connected = Vec::new();
+
+    for method in [
+        PgAuthMethod::None,
+        PgAuthMethod::Password,
+        PgAuthMethod::Md5,
+        PgAuthMethod::ScramSha256,
+    ] {
+        match PgConnection::connect_with(&options.clone().require_auth([method])).await {
+            Ok(conn) => {
+                conn.close().await?;
+                connected.push(method);
+            }
+            Err(sqlx::Error::Configuration(_)) => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+
+    assert_eq!(connected.len(), 1, "connected with {connected:?}");
+
+    Ok(())
+}
+
+#[sqlx_macros::test]
+async fn it_refuses_to_connect_when_require_auth_is_empty() -> anyhow::Result<()> {
+    let options: PgConnectOptions = env::var("DATABASE_URL")?.parse()?;
+    let err = PgConnection::connect_with(&options.require_auth([]))
+        .await
+        .expect_err("no auth method is allowed");
+
+    assert!(
+        matches!(err, sqlx::Error::Configuration(_)),
+        "expected a configuration error, got {err:?}"
+    );
 
     Ok(())
 }

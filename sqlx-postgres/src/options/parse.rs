@@ -1,3 +1,4 @@
+use super::auth_method::{format_require_auth, parse_require_auth};
 use crate::error::Error;
 use crate::{PgConnectOptions, PgSslMode};
 use sqlx_core::percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
@@ -89,6 +90,10 @@ impl PgConnectOptions {
 
                 "application_name" => options = options.application_name(&value),
 
+                "require_auth" | "require-auth" => {
+                    options.require_auth = Some(parse_require_auth(&value)?);
+                }
+
                 "options" => {
                     if let Some(options) = options.options.as_mut() {
                         options.push(' ');
@@ -165,6 +170,11 @@ impl PgConnectOptions {
             "statement-cache-capacity",
             &self.statement_cache_capacity.to_string(),
         );
+
+        if let Some(require_auth) = &self.require_auth {
+            url.query_pairs_mut()
+                .append_pair("require_auth", &format_require_auth(require_auth));
+        }
 
         url
     }

@@ -4,11 +4,13 @@ use std::fmt::{self, Display, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
+pub use auth_method::PgAuthMethod;
 use sqlx_core::net::tls::TlsConnector;
 pub use ssl_mode::PgSslMode;
 
 use crate::{connection::LogSettings, net::tls::CertificateInput};
 
+mod auth_method;
 mod connect;
 mod parse;
 mod pgpass;
@@ -29,6 +31,7 @@ pub struct PgConnectOptions {
     pub(crate) log_settings: LogSettings,
     pub(crate) extra_float_digits: Option<Cow<'static, str>>,
     pub(crate) options: Option<String>,
+    pub(crate) require_auth: Option<Vec<PgAuthMethod>>,
 }
 
 impl Default for PgConnectOptions {
@@ -108,6 +111,7 @@ impl PgConnectOptions {
             extra_float_digits: Some("2".into()),
             log_settings: Default::default(),
             options: var("PGOPTIONS").ok(),
+            require_auth: None,
         }
     }
 
@@ -199,6 +203,35 @@ impl PgConnectOptions {
     /// ```
     pub fn password(mut self, password: &str) -> Self {
         self.password = Some(password.to_owned());
+        self
+    }
+
+    /// Allows only the listed authentication methods.
+    ///
+    /// If the server asks for any other method, the connection fails before the password is
+    /// sent. Include [`PgAuthMethod::None`] to allow servers that skip authentication, such as
+    /// `trust` or `cert` in `pg_hba.conf`. By default every method is allowed.
+    ///
+    /// This is libpq's `require_auth`. The `require_auth` URL parameter takes libpq's syntax,
+    /// including `!` to allow every method except those listed.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use sqlx_postgres::{PgAuthMethod, PgConnectOptions};
+    /// let options = PgConnectOptions::new()
+    ///     .require_auth([PgAuthMethod::ScramSha256]);
+    /// ```
+    pub fn require_auth(mut self, methods: impl IntoIterator<Item = PgAuthMethod>) -> Self {
+        let mut allowed = Vec::new();
+
+        for method in methods {
+            if !allowed.contains(&method) {
+                allowed.push(method);
+            }
+        }
+
+        self.require_auth = Some(allowed);
         self
     }
 
